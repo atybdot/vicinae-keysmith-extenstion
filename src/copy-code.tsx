@@ -85,13 +85,15 @@ export default function CopyCode() {
       .then((parsed) => {
         if (mounted) setAccounts(parsed);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         if (mounted) setError(message);
         showToast({
           style: Toast.Style.Failure,
           title: "Keysmith",
           message: message.slice(0, 400),
+        }).catch(() => {
+          // Toast display is best-effort; the error view already shows the message.
         });
       })
       .finally(() => {
@@ -180,18 +182,18 @@ export default function CopyCode() {
               accessories={
                 item.account.type === "totp"
                   ? [
-                    { text: item.code },
-                    {
-                      tag: {
-                        value: `${String(item.validFor ?? 0).padStart(2, "0")}s`,
-                        color: (item.validFor ?? 60) < 10 ? Color.Red : Color.SecondaryText,
+                      { text: item.code },
+                      {
+                        tag: {
+                          value: `${String(item.validFor ?? 0).padStart(2, "0")}s`,
+                          color: (item.validFor ?? 60) < 10 ? Color.Red : Color.SecondaryText,
+                        },
                       },
-                    },
-                  ]
+                    ]
                   : [
-                    { text: item.code },
-                    { text: `C:${String(item.account.counter ?? 0).padStart(2, "0")}` },
-                  ]
+                      { text: item.code },
+                      { text: `C:${String(item.account.counter ?? 0).padStart(2, "0")}` },
+                    ]
               }
               actions={
                 <ActionPanel>
@@ -221,11 +223,7 @@ export default function CopyCode() {
                   <Action
                     title="Reload Keysmith Data"
                     icon={Icon.ArrowClockwise}
-                    onAction={() => {
-                      setLoading(true);
-                      setError(null);
-                      setRefreshCount((n) => n + 1);
-                    }}
+                    onAction={() => setRefreshCount((n) => n + 1)}
                   />
                 </ActionPanel>
               }

@@ -19,43 +19,35 @@ import { decodeQrImage } from "./lib/qr";
 
 const execFileAsync = promisify(execFile);
 
-function applyOtpUrl(
-  raw: string,
-  setters: {
-    setAccount: (v: string) => void;
-    setIssuer: (v: string) => void;
-    setSecret: (v: string) => void;
-    setType: (v: "totp" | "hotp") => void;
-  },
-): boolean {
+type AccountFields = {
+  account: string;
+  issuer: string;
+  secret: string;
+  type: "totp" | "hotp";
+};
+
+function applyOtpUrl(raw: string, fill: (fields: AccountFields) => void): boolean {
   const url = parseOtpUrl(raw);
   if (!url) return false;
-  setters.setAccount(url.account);
-  setters.setIssuer(url.issuer);
-  setters.setSecret(url.secret);
-  setters.setType(url.type);
+  fill({ account: url.account, issuer: url.issuer, secret: url.secret, type: url.type });
   return true;
 }
 
 async function decodeAndApply(
   imagePath: string,
-  setters: {
-    setAccount: (v: string) => void;
-    setIssuer: (v: string) => void;
-    setSecret: (v: string) => void;
-    setType: (v: "totp" | "hotp") => void;
-  },
+  fill: (fields: AccountFields) => void,
 ): Promise<boolean> {
   const text = await decodeQrImage(imagePath);
   if (!text) {
     await showToast({
       title: "No QR code found",
-      message: "Could not find a QR code in that image. Try a clearer screenshot or paste the URL manually.",
+      message:
+        "Could not find a QR code in that image. Try a clearer screenshot or paste the URL manually.",
       style: Toast.Style.Failure,
     });
     return false;
   }
-  if (!applyOtpUrl(text, setters)) {
+  if (!applyOtpUrl(text, fill)) {
     await showToast({
       title: "Not an OTP QR code",
       message: "The QR code does not contain an otpauth:// URL.",
@@ -63,7 +55,10 @@ async function decodeAndApply(
     });
     return false;
   }
-  await showToast({ title: "QR code detected", message: "Account details filled in. Review and submit." });
+  await showToast({
+    title: "QR code detected",
+    message: "Account details filled in. Review and submit.",
+  });
   return true;
 }
 
@@ -74,13 +69,18 @@ export default function AddAccount() {
   const [secret, setSecret] = useState("");
   const [type, setType] = useState<"totp" | "hotp">("totp");
 
-  const setters = { setAccount, setIssuer, setSecret, setType };
+  function fillForm(fields: AccountFields) {
+    setAccount(fields.account);
+    setIssuer(fields.issuer);
+    setSecret(fields.secret);
+    setType(fields.type);
+  }
 
   async function handleQrFile(paths: string[]) {
     const file = paths[0];
     if (!file) return;
     try {
-      await decodeAndApply(file, setters);
+      await decodeAndApply(file, fillForm);
     } catch (error) {
       await showToast({
         title: "Could not read image",
@@ -108,7 +108,7 @@ export default function AddAccount() {
       return;
     }
     try {
-      await decodeAndApply(output, setters);
+      await decodeAndApply(output, fillForm);
     } catch (error) {
       await showToast({
         title: "Could not read screenshot",
@@ -123,7 +123,8 @@ export default function AddAccount() {
     const manualAccount = String(values.account ?? "").trim() || account.trim();
     const manualIssuer = String(values.issuer ?? "").trim() || issuer.trim();
     const manualSecret = String(values.secret ?? "").trim() || secret.trim();
-    const manualType = (String(values.type ?? type) as "totp" | "hotp") === "hotp" ? "hotp" : "totp";
+    const manualType =
+      (String(values.type ?? type) as "totp" | "hotp") === "hotp" ? "hotp" : "totp";
 
     const parsed = urlValue ? parseOtpUrl(urlValue) : null;
     if (urlValue && !parsed) {
@@ -146,23 +147,31 @@ export default function AddAccount() {
 
     try {
       if (parsed) {
-        await addKeysmithAccount(normalizeConfigPath(preferences.configPath), preferences.masterPassword, {
-          account: parsed.account,
-          issuer: parsed.issuer,
-          type: parsed.type,
-          hash: parsed.algorithm ? `Sha${parsed.algorithm.replace("SHA", "")}` : "Sha1",
-          pinLength: parsed.digits,
-          timeStep: parsed.timeStep,
-          counter: parsed.counter,
-          secret: parsed.secret,
-        });
+        await addKeysmithAccount(
+          normalizeConfigPath(preferences.configPath),
+          preferences.masterPassword,
+          {
+            account: parsed.account,
+            issuer: parsed.issuer,
+            type: parsed.type,
+            hash: parsed.algorithm ? `Sha${parsed.algorithm.replace("SHA", "")}` : "Sha1",
+            pinLength: parsed.digits,
+            timeStep: parsed.timeStep,
+            counter: parsed.counter,
+            secret: parsed.secret,
+          },
+        );
       } else {
-        await addKeysmithAccount(normalizeConfigPath(preferences.configPath), preferences.masterPassword, {
-          account: manualAccount,
-          issuer: manualIssuer,
-          type: manualType,
-          secret: manualSecret,
-        });
+        await addKeysmithAccount(
+          normalizeConfigPath(preferences.configPath),
+          preferences.masterPassword,
+          {
+            account: manualAccount,
+            issuer: manualIssuer,
+            type: manualType,
+            secret: manualSecret,
+          },
+        );
       }
       await showToast({ title: "Account added", message: "The account was added to Keysmith." });
       await closeMainWindow();
@@ -203,7 +212,7 @@ export default function AddAccount() {
         id="otpUrl"
         title="otpauth URL"
         placeholder="otpauth://totp/Google:user@example.com?secret=..."
-        onChange={(value) => applyOtpUrl(value, setters)}
+        onChange={(value) => applyOtpUrl(value, fillForm)}
       />
       <Form.Separator />
       <Form.TextField
@@ -227,7 +236,12 @@ export default function AddAccount() {
         onChange={setSecret}
         placeholder="ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
       />
-      <Form.Dropdown id="type" title="Type" value={type} onChange={(value) => setType(value as "totp" | "hotp")}>
+      <Form.Dropdown
+        id="type"
+        title="Type"
+        value={type}
+        onChange={(value) => setType(value as "totp" | "hotp")}
+      >
         <Form.Dropdown.Item value="totp" title="TOTP" />
         <Form.Dropdown.Item value="hotp" title="HOTP" />
       </Form.Dropdown>

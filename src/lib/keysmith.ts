@@ -72,7 +72,10 @@ export function parseConfig(text: string): Config {
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
     let value = line.slice(idx + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       value = value.slice(1, -1);
     }
     if (!sections[current]) sections[current] = {};
@@ -104,10 +107,7 @@ export async function ensureSodium(): Promise<void> {
   await sodium.ready;
 }
 
-async function deriveKey(
-  password: string,
-  master?: Record<string, string>,
-): Promise<Uint8Array> {
+async function deriveKey(password: string, master?: Record<string, string>): Promise<Uint8Array> {
   if (!master) {
     throw new Error("Keysmith.conf is missing the master-key section");
   }
@@ -115,7 +115,10 @@ async function deriveKey(
   const keylen = Number.parseInt(master.length ?? "32", 10);
   const opsLimit = Number.parseInt(master.cpu ?? "3", 10);
   const memLimit = Number.parseInt(master.memory ?? "268435456", 10);
-  const algorithm = Number.parseInt(master.algorithm ?? String(sodium.crypto_pwhash_ALG_ARGON2ID13), 10);
+  const algorithm = Number.parseInt(
+    master.algorithm ?? String(sodium.crypto_pwhash_ALG_ARGON2ID13),
+    10,
+  );
   return sodium.crypto_pwhash(keylen, password, saltRaw, opsLimit, memLimit, algorithm as number);
 }
 
