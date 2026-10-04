@@ -2,7 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "keysmith",
   "description": "copy codes from keysmith directly",
-  "categories": [],
+  "categories": [
+    "Data",
+    "Security"
+  ],
   "license": "MIT",
   "author": "atybdot",
   "contributors": [],
