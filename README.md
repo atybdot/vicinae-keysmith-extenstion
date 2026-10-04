@@ -5,7 +5,7 @@ A Vicinae extension that reads your KDE Keysmith OTP store directly. Search acco
 ## Commands
 
 - **Search OTP Codes**: searchable list of Keysmith accounts with live codes. TOTP rows show a countdown that turns red under 10 seconds. HOTP rows offer a "Use Code and Increment" action.
-- **Add Account**: scan a QR image file, capture a QR code from the screen with Spectacle, paste an `otpauth://` URL to auto-fill the form, or enter the account details manually. The account is encrypted and appended to the same `Keysmith.conf` Keysmith uses.
+- **Add Account**: scan a QR image file, capture a QR code straight from the screen with Spectacle, or enter the issuer, account name, and secret manually like in Keysmith or Aegis. The account is encrypted and appended to the same `Keysmith.conf` Keysmith uses.
 
 ## Features
 
