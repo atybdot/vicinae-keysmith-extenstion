@@ -13,7 +13,7 @@ import * as os from "os";
 import * as path from "path";
 import { useState } from "react";
 import { promisify } from "util";
-import { addKeysmithAccount, normalizeConfigPath } from "./lib/keysmith";
+import { addKeysmithAccount, base32Decode, normalizeConfigPath } from "./lib/keysmith";
 import { parseOtpUrl } from "./lib/otp";
 import { decodeQrImage } from "./lib/qr";
 
@@ -26,13 +26,6 @@ type AccountFields = {
   type: "totp" | "hotp";
 };
 
-function applyOtpUrl(raw: string, fill: (fields: AccountFields) => void): boolean {
-  const url = parseOtpUrl(raw);
-  if (!url) return false;
-  fill({ account: url.account, issuer: url.issuer, secret: url.secret, type: url.type });
-  return true;
-}
-
 async function decodeAndApply(
   imagePath: string,
   fill: (fields: AccountFields) => void,
@@ -42,19 +35,21 @@ async function decodeAndApply(
     await showToast({
       title: "No QR code found",
       message:
-        "Could not find a QR code in that image. Try a clearer screenshot or paste the URL manually.",
+        "Could not find a QR code in that image. Try a clearer screenshot or enter the details manually.",
       style: Toast.Style.Failure,
     });
     return false;
   }
-  if (!applyOtpUrl(text, fill)) {
+  const url = parseOtpUrl(text);
+  if (!url) {
     await showToast({
       title: "Not an OTP QR code",
-      message: "The QR code does not contain an otpauth:// URL.",
+      message: "The QR code does not contain an OTP setup code.",
       style: Toast.Style.Failure,
     });
     return false;
   }
+  fill({ account: url.account, issuer: url.issuer, secret: url.secret, type: url.type });
   await showToast({
     title: "QR code detected",
     message: "Account details filled in. Review and submit.",
@@ -93,7 +88,7 @@ export default function AddAccount() {
   async function handleScreenshot() {
     const output = path.join(os.tmpdir(), `vicinae-keysmith-qr-${Date.now()}.png`);
     try {
-      await execFileAsync("spectacle", ["-r", "-b", "-o", output], { timeout: 120000 });
+      await execFileAsync("spectacle", ["-r", "-b", "-n", "-o", output], { timeout: 120000 });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("ENOENT")) {
@@ -119,60 +114,42 @@ export default function AddAccount() {
   }
 
   async function handleSubmit(values: Record<string, unknown>) {
-    const urlValue = String(values.otpUrl ?? "").trim();
-    const manualAccount = String(values.account ?? "").trim() || account.trim();
-    const manualIssuer = String(values.issuer ?? "").trim() || issuer.trim();
-    const manualSecret = String(values.secret ?? "").trim() || secret.trim();
-    const manualType =
-      (String(values.type ?? type) as "totp" | "hotp") === "hotp" ? "hotp" : "totp";
+    const name = String(values.account ?? "").trim();
+    const issuerValue = String(values.issuer ?? "").trim();
+    const secretValue = String(values.secret ?? "")
+      .trim()
+      .replace(/\s/g, "");
+    const otpType = String(values.type ?? "totp") === "hotp" ? "hotp" : "totp";
 
-    const parsed = urlValue ? parseOtpUrl(urlValue) : null;
-    if (urlValue && !parsed) {
+    if (!name || !secretValue) {
       await showToast({
-        title: "Invalid otpauth URL",
-        message: "Check the URL and try again.",
+        title: "Missing fields",
+        message: "Scan a QR code or enter the account name and secret.",
         style: Toast.Style.Failure,
       });
       return;
     }
 
-    if (!parsed && (!manualAccount || !manualSecret)) {
+    if (!base32Decode(secretValue)) {
       await showToast({
-        title: "Missing fields",
-        message: "Scan a QR code, paste a URL, or enter the account name and secret.",
+        title: "Invalid secret",
+        message: "The secret must be a valid Base32 code, like the one shown next to the QR code.",
         style: Toast.Style.Failure,
       });
       return;
     }
 
     try {
-      if (parsed) {
-        await addKeysmithAccount(
-          normalizeConfigPath(preferences.configPath),
-          preferences.masterPassword,
-          {
-            account: parsed.account,
-            issuer: parsed.issuer,
-            type: parsed.type,
-            hash: parsed.algorithm ? `Sha${parsed.algorithm.replace("SHA", "")}` : "Sha1",
-            pinLength: parsed.digits,
-            timeStep: parsed.timeStep,
-            counter: parsed.counter,
-            secret: parsed.secret,
-          },
-        );
-      } else {
-        await addKeysmithAccount(
-          normalizeConfigPath(preferences.configPath),
-          preferences.masterPassword,
-          {
-            account: manualAccount,
-            issuer: manualIssuer,
-            type: manualType,
-            secret: manualSecret,
-          },
-        );
-      }
+      await addKeysmithAccount(
+        normalizeConfigPath(preferences.configPath),
+        preferences.masterPassword,
+        {
+          account: name,
+          issuer: issuerValue,
+          type: otpType,
+          secret: secretValue,
+        },
+      );
       await showToast({ title: "Account added", message: "The account was added to Keysmith." });
       await closeMainWindow();
     } catch (error) {
@@ -190,7 +167,7 @@ export default function AddAccount() {
         <ActionPanel>
           <Action.SubmitForm title="Add Account" icon={Icon.Plus} onSubmit={handleSubmit} />
           <Action
-            title="Capture QR Screenshot"
+            title="Scan QR from Screen"
             icon={Icon.Camera}
             shortcut={{ modifiers: ["cmd", "shift"], key: "s" }}
             onAction={handleScreenshot}
@@ -198,30 +175,16 @@ export default function AddAccount() {
         </ActionPanel>
       }
     >
-      <Form.Description text="Scan a QR code, capture it from the screen, paste an otpauth:// URL, or enter the details manually. The account is encrypted into the same Keysmith.conf Keysmith uses." />
+      <Form.Description text="Scan a QR code from a file or straight from the screen, or enter the details manually like in Keysmith or Aegis." />
       <Form.FilePicker
         id="qrImage"
-        title="QR Image"
+        title="QR Image File"
         allowMultipleSelection={false}
         canChooseDirectories={false}
         onChange={handleQrFile}
       />
-      <Form.Description text="Tip: use Capture QR Screenshot from the actions to select a QR code on screen with Spectacle." />
+      <Form.Description text="Tip: press Cmd+Shift+S or pick Scan QR from Screen to select a QR code on screen with Spectacle." />
       <Form.Separator />
-      <Form.TextField
-        id="otpUrl"
-        title="otpauth URL"
-        placeholder="otpauth://totp/Google:user@example.com?secret=..."
-        onChange={(value) => applyOtpUrl(value, fillForm)}
-      />
-      <Form.Separator />
-      <Form.TextField
-        id="account"
-        title="Account"
-        value={account}
-        onChange={setAccount}
-        placeholder="Google: user@example.com"
-      />
       <Form.TextField
         id="issuer"
         title="Issuer"
@@ -230,11 +193,18 @@ export default function AddAccount() {
         placeholder="Google"
       />
       <Form.TextField
+        id="account"
+        title="Account Name"
+        value={account}
+        onChange={setAccount}
+        placeholder="user@example.com"
+      />
+      <Form.TextField
         id="secret"
         title="Secret"
         value={secret}
         onChange={setSecret}
-        placeholder="ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        placeholder="Secret shown next to the QR code"
       />
       <Form.Dropdown
         id="type"
@@ -242,8 +212,8 @@ export default function AddAccount() {
         value={type}
         onChange={(value) => setType(value as "totp" | "hotp")}
       >
-        <Form.Dropdown.Item value="totp" title="TOTP" />
-        <Form.Dropdown.Item value="hotp" title="HOTP" />
+        <Form.Dropdown.Item value="totp" title="TOTP (time-based)" />
+        <Form.Dropdown.Item value="hotp" title="HOTP (counter-based)" />
       </Form.Dropdown>
     </Form>
   );
