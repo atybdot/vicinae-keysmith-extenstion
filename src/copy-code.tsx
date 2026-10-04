@@ -9,69 +9,21 @@ import {
   getPreferenceValues,
   showToast,
 } from "@vicinae/api";
-import { execFile } from "child_process";
-import { createHmac } from "crypto";
-import * as fs from "fs";
-import * as path from "path";
 import { useEffect, useMemo, useState } from "react";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
-
-type KeysmithAccount = {
-  id: string;
-  account: string;
-  issuer: string;
-  type: "totp" | "hotp" | string;
-  hash: "Sha1" | "Sha256" | "Sha512" | string;
-  pinLength: number;
-  epoch: string;
-  timeStep?: number;
-  counter?: number;
-  secretB64: string;
-};
+import {
+  KeysmithAccount,
+  incrementHotpCounter,
+  listKeysmithAccounts,
+  normalizeConfigPath,
+} from "./lib/keysmith";
+import { createHmac } from "crypto";
+import { getBrandIcon } from "./lib/icons";
 
 type CodeItem = {
   account: KeysmithAccount;
   code: string;
   validFor?: number;
 };
-
-function normalizeConfigPath(value?: string): string {
-  return value?.trim() || "~/.config/org.kde.keysmith/Keysmith.conf";
-}
-
-function findDecryptScript(): string {
-  const candidates = [
-    path.resolve(__dirname, "assets", "decrypt_keysmith.py"),
-    path.resolve(__dirname, "..", "assets", "decrypt_keysmith.py"),
-    path.resolve(__dirname, "..", "..", "assets", "decrypt_keysmith.py"),
-    path.resolve(process.cwd(), "assets", "decrypt_keysmith.py"),
-    path.resolve(__dirname, "scripts", "decrypt_keysmith.py"),
-    path.resolve(__dirname, "..", "scripts", "decrypt_keysmith.py"),
-    path.resolve(__dirname, "..", "..", "scripts", "decrypt_keysmith.py"),
-    path.resolve(process.cwd(), "scripts", "decrypt_keysmith.py"),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return candidates[0];
-}
-
-function incrementHotpCounter(accountId: string): Promise<{ ok: boolean; error: string }> {
-  const configPath = normalizeConfigPath(getPreferenceValues<ExtensionPreferences>().configPath);
-  return execFileAsync("python3", [findDecryptScript(), "--increment-hotp", accountId], {
-    env: {
-      ...process.env,
-      KEYSMITH_CONFIG: configPath,
-    },
-  })
-    .then(() => ({ ok: true, error: "" }))
-    .catch((err) => ({
-      ok: false,
-      error: err?.stderr || err?.message || "Failed to update counter",
-    }));
-}
 
 function hashName(hash: string): "sha1" | "sha256" | "sha512" {
   const value = hash.toLowerCase();
@@ -130,20 +82,12 @@ export default function CopyCode() {
     setLoading(true);
     setError(null);
 
-    execFileAsync("python3", [findDecryptScript()], {
-      env: {
-        ...process.env,
-        KEYSMITH_PASSWORD: preferences.masterPassword,
-        KEYSMITH_CONFIG: normalizeConfigPath(preferences.configPath),
-      },
-      maxBuffer: 10 * 1024 * 1024,
-    })
-      .then(({ stdout }) => {
-        const parsed = JSON.parse(stdout) as KeysmithAccount[];
+    listKeysmithAccounts(normalizeConfigPath(preferences.configPath), preferences.masterPassword)
+      .then((parsed) => {
         if (mounted) setAccounts(parsed);
       })
       .catch((err) => {
-        const message = err?.stderr || err?.message || "Failed to read Keysmith";
+        const message = err instanceof Error ? err.message : String(err);
         if (mounted) setError(message);
         showToast({
           style: Toast.Style.Failure,
@@ -200,21 +144,44 @@ export default function CopyCode() {
     return <List isLoading />;
   }
 
+  if (items.length === 0) {
+    return (
+      <List searchBarPlaceholder="Search Keysmith accounts...">
+        <List.EmptyView
+          icon={Icon.Key}
+          title="No OTP Accounts"
+          description="No accounts were found in Keysmith.conf. Add your first account to get started."
+          actions={
+            <ActionPanel>
+              <Action
+                title="Reload"
+                icon={Icon.ArrowClockwise}
+                onAction={() => setRefreshCount((n) => n + 1)}
+              />
+            </ActionPanel>
+          }
+        />
+      </List>
+    );
+  }
+
   return (
     <List searchBarPlaceholder="Search Keysmith accounts...">
       <List.Section
         title={`OTP Codes (${items.length})`}
         subtitle="Type the account or issuer name to filter."
       >
-        {items.map((item) => (
-          <List.Item
-            key={item.account.id}
-            title={item.account.issuer || item.account.account}
-            subtitle={item.account.account}
-            icon={Icon.Key}
-            accessories={
-              item.account.type === "totp"
-                ? [
+        {items.map((item) => {
+          const brand = getBrandIcon(item.account.issuer, item.account.account);
+          return (
+            <List.Item
+              key={item.account.id}
+              title={item.account.issuer || item.account.account}
+              subtitle={item.account.account}
+              icon={brand ? { source: brand } : Icon.Key}
+              accessories={
+                item.account.type === "totp"
+                  ? [
                     { text: item.code },
                     {
                       tag: {
@@ -223,46 +190,50 @@ export default function CopyCode() {
                       },
                     },
                   ]
-                : [
+                  : [
                     { text: item.code },
                     { text: `C:${String(item.account.counter ?? 0).padStart(2, "0")}` },
                   ]
-            }
-            actions={
-              <ActionPanel>
-                {item.account.type === "hotp" ? (
+              }
+              actions={
+                <ActionPanel>
+                  {item.account.type === "hotp" ? (
+                    <Action
+                      title="Use Code and Increment"
+                      icon={Icon.ArrowRight}
+                      onAction={async () => {
+                        await Clipboard.copy(item.code);
+                        const ok = incrementHotpCounter(
+                          normalizeConfigPath(preferences.configPath),
+                          item.account.id,
+                        );
+                        if (!ok) {
+                          await showToast({
+                            style: Toast.Style.Failure,
+                            title: "Keysmith",
+                            message: "Failed to update HOTP counter",
+                          });
+                        } else {
+                          setRefreshCount((n) => n + 1);
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <Action.CopyToClipboard title="Copy Code" content={item.code} />
                   <Action
-                    title="Use Code and Increment"
-                    icon={Icon.ArrowRight}
-                    onAction={async () => {
-                      await Clipboard.copy(item.code);
-                      const result = await incrementHotpCounter(item.account.id);
-                      if (!result.ok) {
-                        await showToast({
-                          style: Toast.Style.Failure,
-                          title: "Keysmith",
-                          message: result.error,
-                        });
-                      } else {
-                        setRefreshCount((n) => n + 1);
-                      }
+                    title="Reload Keysmith Data"
+                    icon={Icon.ArrowClockwise}
+                    onAction={() => {
+                      setLoading(true);
+                      setError(null);
+                      setRefreshCount((n) => n + 1);
                     }}
                   />
-                ) : null}
-                <Action.CopyToClipboard title="Copy Code" content={item.code} />
-                <Action
-                  title="Reload Keysmith Data"
-                  icon={Icon.ArrowClockwise}
-                  onAction={() => {
-                    setLoading(true);
-                    setError(null);
-                    setRefreshCount((n) => n + 1);
-                  }}
-                />
-              </ActionPanel>
-            }
-          />
-        ))}
+                </ActionPanel>
+              }
+            />
+          );
+        })}
       </List.Section>
     </List>
   );

@@ -1,15 +1,23 @@
 # Keysmith for Vicinae
 
-A small Vicinae extension that lists your Keysmith OTP accounts, lets you search them, and copies the current code.
+A Vicinae extension that reads your KDE Keysmith OTP store directly. Search accounts, copy the current TOTP or HOTP code, and add new accounts without managing a second OTP database.
+
+## Commands
+
+- **Search OTP Codes**: searchable list of Keysmith accounts with live codes. TOTP rows show a countdown that turns red under 10 seconds. HOTP rows offer a "Use Code and Increment" action.
+- **Add Account**: paste an `otpauth://` URL to auto-fill the form, or enter the account details manually. The account is encrypted and appended to the same `Keysmith.conf` Keysmith uses.
 
 ## Features
 
 - Search Keysmith accounts by account name or issuer.
-- Generate TOTP codes with live countdown.
-- Copy the current code with the built-in copy action.
-- For HOTP, copy and increment the account counter.
-- Red countdown when fewer than 10 seconds remain.
-- Reads the same `Keysmith.conf` file used by the KDE application.
+- TOTP codes with live countdown, HOTP codes with counter tracking.
+- Brand icons for common issuers, bundled from the Simple Icons project (CC0 1.0).
+- No subprocesses, no network access. Everything runs locally.
+
+## Requirements
+
+- Linux with KDE Keysmith installed and configured.
+- Node.js 20 or newer, `npm` for installing dependencies.
 
 ## Development setup
 
@@ -27,6 +35,8 @@ npm run format
 npm run build
 ```
 
+This project uses oxlint and oxfmt. The committed `package-lock.json` is generated with `npm install` and is required for store submission.
+
 ## Configuration
 
 When you open the extension, Vicinae asks for:
@@ -40,13 +50,19 @@ Default config path:
 ~/.config/org.kde.keysmith/Keysmith.conf
 ```
 
+## Privacy and security
+
+- Decryption (Argon2id key derivation plus secretbox) and OTP calculation happen locally on your machine.
+- Your Keysmith master password lives in Vicinae's extension preferences, alongside your other extension settings.
+- OTP secrets are held in memory only while the command view is open.
+- Adding an account or incrementing an HOTP counter rewrites `Keysmith.conf` atomically through a temporary file plus rename.
+- If the master password is wrong, decryption fails and the extension shows an error instead of an empty list.
+
 ## Notes
 
-- This extension runs the decryption and OTP calculation locally.
-- Your Keysmith master password is stored in Vicinae's extension preferences.
-- For HOTP accounts, use the "Use Code and Increment" action. It updates `Keysmith.conf` before the next code is generated.
 - Vicinae extensions expose the extension command in root search. Open the Keysmith command first, then search inside its list.
+- Brand icons are a small bundled set for v1. Dynamic icon fetching is a possible future improvement.
 
-## Why Python?
+## How it works
 
-Keysmith uses libsodium and Argon2id to protect OTP secrets. Python 3 with a small libsodium helper is the least friction way to reproduce that without porting the exact Keysmith crypto path into TypeScript.
+Keysmith stores each OTP secret encrypted with libsodium `crypto_secretbox`, using a key derived from the master password with Argon2id. The parameters live in the `master-key` section of `Keysmith.conf`. This extension reimplements that read path with `libsodium-wrappers-sumo` (the sumo build is required because `crypto_pwhash` is excluded from the standard build) and computes TOTP and HOTP codes locally.

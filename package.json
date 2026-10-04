@@ -1,7 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "keysmith",
-  "description": "copy codes from keysmith directly",
+  "title": "Keysmith",
+  "description": "Search Keysmith OTP accounts and copy the current TOTP or HOTP code",
   "categories": [
     "Data",
     "Security"
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@vicinae/api": "^0.29.1",
+    "libsodium-wrappers-sumo": "^0.8.4",
     "react": "^19.3.0"
   },
   "devDependencies": {
@@ -31,8 +33,16 @@
   "commands": [
     {
       "name": "copy-code",
-      "title": "Keysmith",
-      "description": "copy the code",
+      "title": "Search OTP Codes",
+      "subtitle": "Keysmith",
+      "description": "Search Keysmith accounts and copy the current OTP code",
+      "mode": "view"
+    },
+    {
+      "name": "add-account",
+      "title": "Add Account",
+      "subtitle": "Keysmith",
+      "description": "Add a new TOTP or HOTP account to the Keysmith store",
       "mode": "view"
     }
   ],
@@ -53,6 +63,5 @@
       "type": "textfield",
       "default": "~/.config/org.kde.keysmith/Keysmith.conf"
     }
-  ],
-  "title": "keysmith"
+  ]
 }
