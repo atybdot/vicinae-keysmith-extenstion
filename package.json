@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "keysmith",
+  "description": "copy codes from keysmith directly",
+  "categories": [],
+  "license": "MIT",
+  "author": "atybdot",
+  "contributors": [],
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop",
+    "format": "oxfmt --write src",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.29.1",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
+    "typescript": "^5.9.2"
+  },
+  "icon": "extension_icon.png",
+  "commands": [
+    {
+      "name": "copy-code",
+      "title": "Keysmith",
+      "description": "copy the code",
+      "mode": "view"
+    }
+  ],
+  "pastContributors": [],
+  "preferences": [
+    {
+      "name": "masterPassword",
+      "title": "Master password",
+      "description": "The master password you use in Keysmith",
+      "required": true,
+      "type": "password"
+    },
+    {
+      "name": "configPath",
+      "title": "Config path",
+      "description": "Path to Keysmith.conf",
+      "required": false,
+      "type": "textfield",
+      "default": "~/.config/org.kde.keysmith/Keysmith.conf"
+    }
+  ],
+  "title": "keysmith"
+}
