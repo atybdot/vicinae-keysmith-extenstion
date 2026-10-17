@@ -122,7 +122,7 @@ Rules:
 
 ### UI surfaces
 
-- Unlock form. Password field, policy dropdown on first run only, submit action.
+- Unlock form. Password field and submit action. On first run the form shows the current lock policy and the action panel offers the choices. Vicinae's native dropdown always renders a search field, so the policy uses actions instead.
 - Vault settings, pushed from the list with `Action.Push`: current policy, change policy, Lock now.
 - Lock now clears the cache and returns to the locked state. Useful for the "on reboot" and "on logout" users who want to lock early.
 - List error view keeps the unused Reload action and adds Unlock.

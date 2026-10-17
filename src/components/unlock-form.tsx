@@ -57,6 +57,18 @@ export function UnlockForm({ firstRun, defaultPassword = "", onSubmit }: UnlockF
             icon={Icon.LockUnlocked}
             onSubmit={handleSubmit}
           />
+          {firstRun ? (
+            <ActionPanel.Section title="Lock policy">
+              {LOCK_POLICIES.map((entry) => (
+                <Action
+                  key={entry.value}
+                  title={entry.title}
+                  icon={entry.value === policy ? Icon.CheckCircle : Icon.Circle}
+                  onAction={() => setPolicy(entry.value)}
+                />
+              ))}
+            </ActionPanel.Section>
+          ) : null}
         </ActionPanel>
       }
     >
@@ -81,19 +93,14 @@ export function UnlockForm({ firstRun, defaultPassword = "", onSubmit }: UnlockF
         ref={passwordRef}
       />
       {firstRun ? (
-        <>
-          <Form.Dropdown
-            id="policy"
-            title="Lock policy"
-            value={policy}
-            onChange={(value) => setPolicy(value as LockPolicy)}
-          >
-            {LOCK_POLICIES.map((entry) => (
-              <Form.Dropdown.Item key={entry.value} value={entry.value} title={entry.title} />
-            ))}
-          </Form.Dropdown>
-          {selectedPolicy ? <Form.Description text={selectedPolicy.description} /> : null}
-        </>
+        <Form.Description
+          title={selectedPolicy ? `Lock policy: ${selectedPolicy.title}` : "Lock policy"}
+          text={
+            selectedPolicy
+              ? `${selectedPolicy.description} Change it from the action panel.`
+              : "Change it from the action panel."
+          }
+        />
       ) : null}
     </Form>
   );
