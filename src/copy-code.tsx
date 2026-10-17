@@ -16,6 +16,7 @@ import {
   listKeysmithAccounts,
   normalizeConfigPath,
 } from "./lib/keysmith";
+import { unlockVault } from "./lib/vault";
 import { createHmac } from "crypto";
 
 type CodeItem = {
@@ -81,8 +82,16 @@ export default function CopyCode() {
     setLoading(true);
     setError(null);
 
-    listKeysmithAccounts(normalizeConfigPath(preferences.configPath), preferences.masterPassword)
-      .then((parsed) => {
+    const configPath = normalizeConfigPath(preferences.configPath);
+
+    unlockVault(configPath, preferences.masterPassword)
+      .then(async (outcome) => {
+        if (outcome.status === "invalid-password") {
+          throw new Error(
+            "That password did not unlock your Keysmith vault. Check your Master password preference.",
+          );
+        }
+        const parsed = await listKeysmithAccounts(configPath, outcome.key);
         if (mounted) setAccounts(parsed);
       })
       .catch((err: unknown) => {

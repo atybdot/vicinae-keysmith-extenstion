@@ -16,6 +16,7 @@ import { promisify } from "util";
 import { addKeysmithAccount, base32Decode, normalizeConfigPath } from "./lib/keysmith";
 import { parseOtpUrl } from "./lib/otp";
 import { decodeQrImage } from "./lib/qr";
+import { unlockVault } from "./lib/vault";
 
 const execFileAsync = promisify(execFile);
 
@@ -140,16 +141,22 @@ export default function AddAccount() {
     }
 
     try {
-      await addKeysmithAccount(
-        normalizeConfigPath(preferences.configPath),
-        preferences.masterPassword,
-        {
-          account: name,
-          issuer: issuerValue,
-          type: otpType,
-          secret: secretValue,
-        },
-      );
+      const configPath = normalizeConfigPath(preferences.configPath);
+      const outcome = await unlockVault(configPath, preferences.masterPassword);
+      if (outcome.status === "invalid-password") {
+        await showToast({
+          title: "Wrong password",
+          message: "That password did not unlock your Keysmith vault. Nothing was written.",
+          style: Toast.Style.Failure,
+        });
+        return;
+      }
+      await addKeysmithAccount(configPath, outcome.key, {
+        account: name,
+        issuer: issuerValue,
+        type: otpType,
+        secret: secretValue,
+      });
       await showToast({ title: "Account added", message: "The account was added to Keysmith." });
       await closeMainWindow();
     } catch (error) {

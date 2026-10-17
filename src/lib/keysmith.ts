@@ -107,7 +107,15 @@ export async function ensureSodium(): Promise<void> {
   await sodium.ready;
 }
 
-async function deriveKey(password: string, master?: Record<string, string>): Promise<Uint8Array> {
+export type DerivedKey = {
+  key: Uint8Array;
+  saltB64: string;
+};
+
+export async function deriveKey(
+  password: string,
+  master?: Record<string, string>,
+): Promise<DerivedKey> {
   if (!master) {
     throw new Error("Keysmith.conf is missing the master-key section");
   }
@@ -119,7 +127,15 @@ async function deriveKey(password: string, master?: Record<string, string>): Pro
     master.algorithm ?? String(sodium.crypto_pwhash_ALG_ARGON2ID13),
     10,
   );
-  return sodium.crypto_pwhash(keylen, password, saltRaw, opsLimit, memLimit, algorithm as number);
+  const key = sodium.crypto_pwhash(
+    keylen,
+    password,
+    saltRaw,
+    opsLimit,
+    memLimit,
+    algorithm as number,
+  );
+  return { key, saltB64: base64Encode(saltRaw) };
 }
 
 function base64Decode(value: string): Uint8Array {
@@ -128,23 +144,55 @@ function base64Decode(value: string): Uint8Array {
   return Uint8Array.from(Buffer.from(`${clean}${padding}`, "base64").values());
 }
 
+function base64Encode(value: Uint8Array): string {
+  return Buffer.from(value).toString("base64");
+}
+
+export type KeyVerification = "verified" | "invalid" | "nothing-to-verify";
+
+/**
+ * Opens the first account section in the config with the given key. A successful
+ * open proves the key (and therefore the password it was derived from) is right.
+ *
+ * `crypto_secretbox_open_easy` throws on a wrong key. That throw is the signal,
+ * not a bug, so it is caught here and turned into an explicit result.
+ */
+export function verifyKey(config: Config, key: Uint8Array): KeyVerification {
+  for (const [id, data] of Object.entries(config)) {
+    if (id === "master-key" || !data.secret || !data.nonce) continue;
+    try {
+      sodium.crypto_secretbox_open_easy(base64Decode(data.secret), base64Decode(data.nonce), key);
+      return "verified";
+    } catch {
+      return "invalid";
+    }
+  }
+  return "nothing-to-verify";
+}
+
 export async function listKeysmithAccounts(
   configPath: string,
-  password: string,
+  key: Uint8Array,
 ): Promise<KeysmithAccount[]> {
   await ensureSodium();
   const config = readConfig(configPath);
-  const key = await deriveKey(password, config["master-key"]);
   const accounts: KeysmithAccount[] = [];
 
   for (const [id, data] of Object.entries(config)) {
     if (id === "master-key" || !data.secret || !data.nonce || !data.type) continue;
-    const raw = sodium.crypto_secretbox_open_easy(
-      base64Decode(data.secret),
-      base64Decode(data.nonce),
-      key,
-    );
-    if (!raw) continue;
+    let raw: Uint8Array;
+    try {
+      raw = sodium.crypto_secretbox_open_easy(
+        base64Decode(data.secret),
+        base64Decode(data.nonce),
+        key,
+      );
+    } catch {
+      // The key is already verified by the unlock step, so a failure here is a
+      // corrupt entry, not a wrong password. Surface it plainly instead of the
+      // raw libsodium message.
+      throw new Error(`Failed to decrypt account "${id}". The vault entry may be corrupt.`);
+    }
     accounts.push({
       id,
       account: (data.account ?? "").trim(),
@@ -162,16 +210,22 @@ export async function listKeysmithAccounts(
   return accounts;
 }
 
+/**
+ * Encrypts and appends an account using an already-derived, verified key.
+ * It no longer accepts a password: deriving here would let a stale password
+ * write an entry that can never be decrypted. Callers must unlock first.
+ */
 export async function addKeysmithAccount(
   configPath: string,
-  password: string,
+  key: Uint8Array,
   account: OTPAccountInput,
 ): Promise<void> {
   await ensureSodium();
+  if (!(key instanceof Uint8Array) || key.length === 0) {
+    throw new Error("Refusing to write: the vault was not unlocked with a verified key");
+  }
   const rawConfigPath = normalizeConfigPath(configPath);
   const config = readConfig(rawConfigPath);
-  const key = await deriveKey(password, config["master-key"]);
-  if (!key) throw Error("Failed to derive encryption key");
 
   const secretBytes = base32Decode(account.secret);
   if (!secretBytes) throw new Error("Invalid Base32 secret");
