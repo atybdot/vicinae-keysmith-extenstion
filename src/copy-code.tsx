@@ -18,6 +18,7 @@ import {
 } from "./lib/keysmith";
 import { type VaultGate, type VaultSession, legacyMasterPassword, useVault } from "./lib/vault";
 import { UnlockForm } from "./components/unlock-form";
+import { VaultSettings } from "./components/vault-settings";
 import { createHmac } from "crypto";
 
 type CodeItem = {
@@ -145,6 +146,11 @@ function AccountList({
                 onAction={() => setRefreshCount((n) => n + 1)}
               />
               <Action title="Unlock" icon={Icon.Lock} onAction={() => void gate.lock()} />
+              <Action.Push
+                title="Vault Settings"
+                icon={Icon.Cog}
+                target={<VaultSettings gate={gate} />}
+              />
             </ActionPanel>
           }
         />
@@ -169,6 +175,11 @@ function AccountList({
                 title="Reload"
                 icon={Icon.ArrowClockwise}
                 onAction={() => setRefreshCount((n) => n + 1)}
+              />
+              <Action.Push
+                title="Vault Settings"
+                icon={Icon.Cog}
+                target={<VaultSettings gate={gate} />}
               />
             </ActionPanel>
           }
@@ -233,6 +244,11 @@ function AccountList({
                     icon={Icon.ArrowClockwise}
                     onAction={() => setRefreshCount((n) => n + 1)}
                   />
+                  <Action.Push
+                    title="Vault Settings"
+                    icon={Icon.Cog}
+                    target={<VaultSettings gate={gate} />}
+                  />
                 </ActionPanel>
               }
             />
@@ -266,6 +282,11 @@ export default function CopyCode() {
           actions={
             <ActionPanel>
               <Action title="Unlock" icon={Icon.Lock} onAction={() => void gate.lock()} />
+              <Action.Push
+                title="Vault Settings"
+                icon={Icon.Cog}
+                target={<VaultSettings gate={gate} />}
+              />
             </ActionPanel>
           }
         />
