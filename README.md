@@ -39,9 +39,8 @@ This project uses oxlint and oxfmt. The committed `package-lock.json` is generat
 
 ## Configuration
 
-When you open the extension, Vicinae asks for:
+The extension asks for one preference:
 
-- `Master password`: your Keysmith master password.
 - `Config path`: your `Keysmith.conf` path.
 
 Default config path:
@@ -50,13 +49,35 @@ Default config path:
 ~/.config/org.kde.keysmith/Keysmith.conf
 ```
 
+Your master password is not a preference. You enter it inside the extension on first launch, and you pick how long that unlock lasts.
+
+## Unlocking and lock policies
+
+Nothing is read until you unlock the vault. Enter your Keysmith master password once. The extension derives the vault key with Argon2id, checks it against the first account in the file, and holds the key in memory. A wrong password keeps the form open with an inline error, so you can try again instead of reloading a stale value.
+
+You choose when the key is forgotten:
+
+- **Every time**: the key lives in memory for the open view only and nothing is written to disk. This is the closest match to Keysmith, where you unlock the vault whenever you want a code.
+- **On logout** (default): the key survives until the Vicinae daemon restarts, which tracks the login session. If the daemon start time cannot be read, it falls back to the lifetime of the extension worker.
+- **On reboot**: the key survives until the machine reboots.
+
+The cached key is tied to the `master-key` salt in `Keysmith.conf`. Change your Keysmith password and the cache is dropped on the next open, so you get the unlock form again instead of an unreadable vault. Open Vault Settings from the account list to change the policy or lock right now.
+
+### Coming from an older build
+
+Earlier versions stored your master password as an extension preference. It is gone from the manifest now, so Vicinae stops asking for it at install. On the first unlock the extension reads that old value once to prefill the field, then ignores it.
+
+Removing a preference does not always purge its stored value, so the plaintext password may still be sitting in Vicinae's settings database. If the Master password field is still listed in the extension preferences, clear it. Either way, the extension treats the old value as stale after the migration.
+
 ## Privacy and security
 
-- Decryption (Argon2id key derivation plus secretbox) and OTP calculation happen locally on your machine.
-- Your Keysmith master password lives in Vicinae's extension preferences, alongside your other extension settings.
+- Argon2id key derivation, secretbox decryption, and OTP calculation all run locally. No subprocesses, no network access.
+- Your master password is never stored. Under the Every time policy it is never written to disk. Under the other policies the extension caches the derived key instead, and that key only opens this one vault. It cannot unlock Keysmith, which derives its own key from the typed password.
+- The cached key lives in Vicinae's local storage, which is only as private as `vicinae.db`. Database encryption is opt-in via sqlcipher, so on a default install the cache is a plaintext key on disk. Pick Every time if you would rather avoid that.
+- Locking clears the cached copy. A copy of the key can still sit in the worker's heap until the process exits, so clearing the cache removes the durable copy, not every in-memory one.
 - OTP secrets are held in memory only while the command view is open.
 - Adding an account or incrementing an HOTP counter rewrites `Keysmith.conf` atomically through a temporary file plus rename.
-- If the master password is wrong, decryption fails and the extension shows an error instead of an empty list.
+- The extension will not write a new account unless it has checked the password against an existing account. A vault with no accounts gets a warning instead of a silent empty list.
 
 ## Notes
 
@@ -66,3 +87,5 @@ Default config path:
 ## How it works
 
 Keysmith stores each OTP secret encrypted with libsodium `crypto_secretbox`, using a key derived from the master password with Argon2id. The parameters live in the `master-key` section of `Keysmith.conf`. This extension reimplements that read path with `libsodium-wrappers-sumo` (the sumo build is required because `crypto_pwhash` is excluded from the standard build) and computes TOTP and HOTP codes locally.
+
+To check a password the extension opens the first account it finds. A wrong password is caught there, before the list loads and before any account is written, so it never appends an entry encrypted under a key Keysmith does not have.
