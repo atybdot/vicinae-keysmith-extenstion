@@ -148,6 +148,16 @@ function base64Encode(value: Uint8Array): string {
   return Buffer.from(value).toString("base64");
 }
 
+/**
+ * The normalized base64 of the `[master-key]` salt, or null when absent. Stored
+ * alongside a cached key so a Keysmith password change invalidates the cache.
+ */
+export function masterSaltB64(config: Config): string | null {
+  const salt = config["master-key"]?.salt;
+  if (!salt) return null;
+  return base64Encode(base64Decode(salt));
+}
+
 export type KeyVerification = "verified" | "invalid" | "nothing-to-verify";
 
 /**
