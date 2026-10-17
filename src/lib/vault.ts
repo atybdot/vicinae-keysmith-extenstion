@@ -200,7 +200,10 @@ export async function rememberUnlockedKey(
   outcome: Exclude<UnlockOutcome, { status: "invalid-password" }>,
   policy: LockPolicy,
 ): Promise<void> {
-  if (policy === "every-time") {
+  if (policy === "every-time" || outcome.status === "nothing-to-verify") {
+    // An unverified key is never cached. On a later launch it would be
+    // indistinguishable from a key confirmed against a real account, and it
+    // must not be reused to write.
     await clearCache();
     return;
   }

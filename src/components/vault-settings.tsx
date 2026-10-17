@@ -1,4 +1,5 @@
 import { Action, ActionPanel, Icon, List, popToRoot } from "@vicinae/api";
+import { useState } from "react";
 import { DEFAULT_LOCK_POLICY, LOCK_POLICIES, type LockPolicy, type VaultGate } from "../lib/vault";
 
 /**
@@ -6,7 +7,12 @@ import { DEFAULT_LOCK_POLICY, LOCK_POLICIES, type LockPolicy, type VaultGate } f
  * the vault early.
  */
 export function VaultSettings({ gate }: { gate: VaultGate }) {
-  const policy = gate.session?.policy ?? DEFAULT_LOCK_POLICY;
+  const [policy, setPolicy] = useState<LockPolicy>(gate.session?.policy ?? DEFAULT_LOCK_POLICY);
+
+  async function choosePolicy(next: LockPolicy) {
+    setPolicy(next);
+    await gate.setPolicy(next);
+  }
 
   async function lockNow() {
     await gate.lock();
@@ -32,7 +38,7 @@ export function VaultSettings({ gate }: { gate: VaultGate }) {
                       title="Use This Policy"
                       icon={Icon.LockUnlocked}
                       onAction={() => {
-                        void gate.setPolicy(entry.value as LockPolicy);
+                        void choosePolicy(entry.value as LockPolicy);
                       }}
                     />
                   )}
