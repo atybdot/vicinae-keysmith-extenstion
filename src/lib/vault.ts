@@ -1,6 +1,7 @@
-import { LocalStorage } from "@vicinae/api";
+import { getPreferenceValues, LocalStorage, showToast, Toast } from "@vicinae/api";
 import { randomBytes } from "crypto";
 import * as fs from "fs";
+import { useCallback, useEffect, useState } from "react";
 import { deriveKey, ensureSodium, masterSaltB64, readConfig, verifyKey } from "./keysmith";
 
 /**
@@ -227,7 +228,7 @@ export async function rememberUnlockedKey(
 export async function loadCachedKey(
   configPath: string,
   policy: LockPolicy,
-): Promise<Uint8Array | null> {
+): Promise<{ key: Uint8Array; saltB64: string } | null> {
   if (policy === "every-time") {
     await clearCache();
     return null;
@@ -257,5 +258,136 @@ export async function loadCachedKey(
     }
   }
 
-  return base64ToBytes(entry.key);
+  return { key: base64ToBytes(entry.key), saltB64: entry.salt };
+}
+
+export type VaultSession = {
+  key: Uint8Array;
+  saltB64: string;
+  /** False when the vault had no accounts to verify the password against. */
+  verified: boolean;
+  policy: LockPolicy;
+};
+
+export type UnlockResult = { ok: true } | { ok: false; message: string };
+
+export type VaultGate = {
+  status: "loading" | "locked" | "unlocked" | "error";
+  /** True when no lock policy is stored yet, which is the first-run case. */
+  firstRun: boolean;
+  error: string | null;
+  session: VaultSession | null;
+  unlock: (password: string, policy: LockPolicy) => Promise<UnlockResult>;
+  /** Clears the cache and returns to the locked state. */
+  lock: () => Promise<void>;
+  /** Changes the stored policy and re-caches the current key accordingly. */
+  setPolicy: (policy: LockPolicy) => Promise<void>;
+};
+
+/**
+ * The unwritten preference from the pre-unlock build. It is read only to prefill
+ * the first-run form, and only until a lock policy has been stored.
+ */
+export function legacyMasterPassword(): string {
+  try {
+    const preferences = getPreferenceValues<{ masterPassword?: unknown }>();
+    return typeof preferences.masterPassword === "string" ? preferences.masterPassword : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Drives the locked/unlocked gate shared by both commands. The derived key is
+ * held in React state and never in the password field.
+ */
+export function useVault(configPath: string): VaultGate {
+  const [status, setStatus] = useState<VaultGate["status"]>("loading");
+  const [firstRun, setFirstRun] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<VaultSession | null>(null);
+
+  const bootstrap = useCallback(async () => {
+    setStatus("loading");
+    setError(null);
+    try {
+      const policy = await readLockPolicy();
+      if (!policy) {
+        setFirstRun(true);
+        setStatus("locked");
+        return;
+      }
+      setFirstRun(false);
+      const cached = await loadCachedKey(configPath, policy);
+      if (!cached) {
+        setStatus("locked");
+        return;
+      }
+      setSession({ key: cached.key, saltB64: cached.saltB64, verified: true, policy });
+      setStatus("unlocked");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+    }
+  }, [configPath]);
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  const unlock = useCallback(
+    async (password: string, policy: LockPolicy): Promise<UnlockResult> => {
+      const outcome = await unlockVault(configPath, password);
+      if (outcome.status === "invalid-password") {
+        return {
+          ok: false,
+          message: "That password did not unlock your Keysmith vault. Try again.",
+        };
+      }
+      const verified = outcome.status === "ok";
+      await writeLockPolicy(policy);
+      await rememberUnlockedKey(outcome, policy);
+      setSession({ key: outcome.key, saltB64: outcome.saltB64, verified, policy });
+      setFirstRun(false);
+      setStatus("unlocked");
+      if (!verified) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Vault could not be verified",
+          message:
+            "Your vault has no accounts yet, so the password could not be confirmed. Nothing will be written until it can be.",
+        }).catch(() => {
+          // Toast display is best-effort.
+        });
+      }
+      return { ok: true };
+    },
+    [configPath],
+  );
+
+  const lock = useCallback(async () => {
+    await clearCache();
+    setSession(null);
+    setStatus("locked");
+  }, []);
+
+  const setPolicy = useCallback(
+    async (policy: LockPolicy) => {
+      await writeLockPolicy(policy);
+      if (session) {
+        await rememberUnlockedKey(
+          {
+            status: session.verified ? "ok" : "nothing-to-verify",
+            key: session.key,
+            saltB64: session.saltB64,
+          },
+          policy,
+        );
+      }
+      setSession((prev) => (prev ? { ...prev, policy } : prev));
+    },
+    [session],
+  );
+
+  return { status, firstRun, error, session, unlock, lock, setPolicy };
 }

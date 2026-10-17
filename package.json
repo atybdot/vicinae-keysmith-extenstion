@@ -54,13 +54,6 @@
   "pastContributors": [],
   "preferences": [
     {
-      "name": "masterPassword",
-      "title": "Master password",
-      "description": "The master password you use in Keysmith",
-      "required": true,
-      "type": "password"
-    },
-    {
       "name": "configPath",
       "title": "Config path",
       "description": "Path to Keysmith.conf",

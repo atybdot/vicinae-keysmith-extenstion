@@ -3,6 +3,7 @@ import {
   ActionPanel,
   Form,
   Icon,
+  List,
   closeMainWindow,
   getPreferenceValues,
   showToast,
@@ -16,7 +17,8 @@ import { promisify } from "util";
 import { addKeysmithAccount, base32Decode, normalizeConfigPath } from "./lib/keysmith";
 import { parseOtpUrl } from "./lib/otp";
 import { decodeQrImage } from "./lib/qr";
-import { unlockVault } from "./lib/vault";
+import { type VaultSession, legacyMasterPassword, useVault } from "./lib/vault";
+import { UnlockForm } from "./components/unlock-form";
 
 const execFileAsync = promisify(execFile);
 
@@ -58,8 +60,7 @@ async function decodeAndApply(
   return true;
 }
 
-export default function AddAccount() {
-  const preferences = getPreferenceValues<ExtensionPreferences>();
+function AddAccountForm({ configPath, session }: { configPath: string; session: VaultSession }) {
   const [account, setAccount] = useState("");
   const [issuer, setIssuer] = useState("");
   const [secret, setSecret] = useState("");
@@ -141,17 +142,7 @@ export default function AddAccount() {
     }
 
     try {
-      const configPath = normalizeConfigPath(preferences.configPath);
-      const outcome = await unlockVault(configPath, preferences.masterPassword);
-      if (outcome.status === "invalid-password") {
-        await showToast({
-          title: "Wrong password",
-          message: "That password did not unlock your Keysmith vault. Nothing was written.",
-          style: Toast.Style.Failure,
-        });
-        return;
-      }
-      await addKeysmithAccount(configPath, outcome.key, {
+      await addKeysmithAccount(configPath, session.key, {
         account: name,
         issuer: issuerValue,
         type: otpType,
@@ -223,5 +214,62 @@ export default function AddAccount() {
         <Form.Dropdown.Item value="hotp" title="HOTP (counter-based)" />
       </Form.Dropdown>
     </Form>
+  );
+}
+
+export default function AddAccount() {
+  const preferences = getPreferenceValues<ExtensionPreferences>();
+  const configPath = normalizeConfigPath(preferences.configPath);
+  const gate = useVault(configPath);
+
+  if (gate.status === "loading") {
+    return <Form isLoading />;
+  }
+
+  if (gate.status === "unlocked" && gate.session) {
+    if (!gate.session.verified) {
+      // The password could not be checked against any account. Writing here
+      // would risk an entry Keysmith can never open.
+      return (
+        <List>
+          <List.EmptyView
+            icon={Icon.Warning}
+            title="Vault could not be verified"
+            description="Your vault has no accounts, so the master password could not be confirmed. Add an account in Keysmith first, then unlock here."
+            actions={
+              <ActionPanel>
+                <Action title="Unlock" icon={Icon.Lock} onAction={() => void gate.lock()} />
+              </ActionPanel>
+            }
+          />
+        </List>
+      );
+    }
+    return <AddAccountForm configPath={configPath} session={gate.session} />;
+  }
+
+  if (gate.status === "error") {
+    return (
+      <List>
+        <List.EmptyView
+          icon={Icon.Warning}
+          title="Could not read Keysmith"
+          description={gate.error ?? "Unknown error"}
+          actions={
+            <ActionPanel>
+              <Action title="Unlock" icon={Icon.Lock} onAction={() => void gate.lock()} />
+            </ActionPanel>
+          }
+        />
+      </List>
+    );
+  }
+
+  return (
+    <UnlockForm
+      firstRun={gate.firstRun}
+      defaultPassword={gate.firstRun ? legacyMasterPassword() : ""}
+      onSubmit={gate.unlock}
+    />
   );
 }

@@ -16,7 +16,8 @@ import {
   listKeysmithAccounts,
   normalizeConfigPath,
 } from "./lib/keysmith";
-import { unlockVault } from "./lib/vault";
+import { type VaultGate, type VaultSession, legacyMasterPassword, useVault } from "./lib/vault";
+import { UnlockForm } from "./components/unlock-form";
 import { createHmac } from "crypto";
 
 type CodeItem = {
@@ -69,8 +70,16 @@ function hotp(account: KeysmithAccount): { code: string } {
   };
 }
 
-export default function CopyCode() {
-  const preferences = getPreferenceValues<ExtensionPreferences>();
+function AccountList({
+  configPath,
+  session,
+  gate,
+}: {
+  configPath: string;
+  session: VaultSession;
+  gate: VaultGate;
+}) {
+  const key = session.key;
   const [accounts, setAccounts] = useState<KeysmithAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,16 +91,8 @@ export default function CopyCode() {
     setLoading(true);
     setError(null);
 
-    const configPath = normalizeConfigPath(preferences.configPath);
-
-    unlockVault(configPath, preferences.masterPassword)
-      .then(async (outcome) => {
-        if (outcome.status === "invalid-password") {
-          throw new Error(
-            "That password did not unlock your Keysmith vault. Check your Master password preference.",
-          );
-        }
-        const parsed = await listKeysmithAccounts(configPath, outcome.key);
+    listKeysmithAccounts(configPath, key)
+      .then((parsed) => {
         if (mounted) setAccounts(parsed);
       })
       .catch((err: unknown) => {
@@ -112,7 +113,7 @@ export default function CopyCode() {
     return () => {
       mounted = false;
     };
-  }, [preferences.masterPassword, preferences.configPath, refreshCount]);
+  }, [configPath, key, refreshCount]);
 
   useEffect(() => {
     const interval = setInterval(() => setTick((n) => n + 1), 1000);
@@ -143,6 +144,7 @@ export default function CopyCode() {
                 icon={Icon.ArrowClockwise}
                 onAction={() => setRefreshCount((n) => n + 1)}
               />
+              <Action title="Unlock" icon={Icon.Lock} onAction={() => void gate.lock()} />
             </ActionPanel>
           }
         />
@@ -212,10 +214,7 @@ export default function CopyCode() {
                       icon={Icon.ArrowRight}
                       onAction={async () => {
                         await Clipboard.copy(item.code);
-                        const ok = incrementHotpCounter(
-                          normalizeConfigPath(preferences.configPath),
-                          item.account.id,
-                        );
+                        const ok = incrementHotpCounter(configPath, item.account.id);
                         if (!ok) {
                           await showToast({
                             style: Toast.Style.Failure,
@@ -241,5 +240,44 @@ export default function CopyCode() {
         })}
       </List.Section>
     </List>
+  );
+}
+
+export default function CopyCode() {
+  const preferences = getPreferenceValues<ExtensionPreferences>();
+  const configPath = normalizeConfigPath(preferences.configPath);
+  const gate = useVault(configPath);
+
+  if (gate.status === "loading") {
+    return <List isLoading />;
+  }
+
+  if (gate.status === "unlocked" && gate.session) {
+    return <AccountList configPath={configPath} session={gate.session} gate={gate} />;
+  }
+
+  if (gate.status === "error") {
+    return (
+      <List>
+        <List.EmptyView
+          icon={Icon.Warning}
+          title="Could not read Keysmith"
+          description={gate.error ?? "Unknown error"}
+          actions={
+            <ActionPanel>
+              <Action title="Unlock" icon={Icon.Lock} onAction={() => void gate.lock()} />
+            </ActionPanel>
+          }
+        />
+      </List>
+    );
+  }
+
+  return (
+    <UnlockForm
+      firstRun={gate.firstRun}
+      defaultPassword={gate.firstRun ? legacyMasterPassword() : ""}
+      onSubmit={gate.unlock}
+    />
   );
 }
