@@ -34,10 +34,6 @@ export const LOCK_POLICIES: { value: LockPolicy; title: string; description: str
   },
 ];
 
-export function lockPolicyTitle(policy: LockPolicy): string {
-  return LOCK_POLICIES.find((entry) => entry.value === policy)?.title ?? policy;
-}
-
 /**
  * Result of trying to unlock the vault with a password.
  *
