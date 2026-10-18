@@ -12,7 +12,12 @@ const POLICY_ICONS = {
   "every-time": Icon.Lock,
   "on-logout": Icon.Logout,
   "on-reboot": Icon.Power,
+  never: Icon.LockDisabled,
 } as const;
+
+/** Shown under the dropdown when the riskiest policy is selected. */
+const NEVER_WARNING =
+  "Security risk: the key is never forgotten, so anything that can read vicinae.db can generate your codes. Lock by hand, or change your Keysmith password, to clear it.";
 
 type UnlockFormProps = {
   /** First run asks for the lock policy as well as the password. */
@@ -99,13 +104,14 @@ export function UnlockForm({ firstRun, defaultPassword = "", onSubmit }: UnlockF
             <Form.Dropdown.Item
               key={entry.value}
               value={entry.value}
-              title={entry.title}
+              title={entry.recommended ? `${entry.title} (Recommended)` : entry.title}
               icon={POLICY_ICONS[entry.value]}
             />
           ))}
         </Form.Dropdown>
       ) : null}
       {firstRun && selectedPolicy ? <Form.Description text={selectedPolicy.description} /> : null}
+      {firstRun && policy === "never" ? <Form.Description text={NEVER_WARNING} /> : null}
     </Form>
   );
 }

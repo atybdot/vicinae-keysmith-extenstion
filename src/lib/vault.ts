@@ -19,12 +19,22 @@ import { isSupportedPlatform } from "./platform";
  * - `on-logout`: the key survives until the Vicinae daemon restarts, which
  *   tracks the login session on a per-session service.
  * - `on-reboot`: the key survives until the machine reboots.
+ * - `never`: the key is written and left in place until the user locks by hand
+ *   or the Keysmith password changes. The riskiest of the four, because the
+ *   cached key is only ever as private as vicinae.db.
  */
-export type LockPolicy = "every-time" | "on-logout" | "on-reboot";
+export type LockPolicy = "every-time" | "on-logout" | "on-reboot" | "never";
 
+/** The policy the forms start on, and the one the UI suggests. */
 export const DEFAULT_LOCK_POLICY: LockPolicy = "on-logout";
 
-export const LOCK_POLICIES: { value: LockPolicy; title: string; description: string }[] = [
+export const LOCK_POLICIES: {
+  value: LockPolicy;
+  title: string;
+  description: string;
+  /** Set on the policy the UI nudges users toward. */
+  recommended?: boolean;
+}[] = [
   {
     value: "every-time",
     title: "Every time",
@@ -34,11 +44,18 @@ export const LOCK_POLICIES: { value: LockPolicy; title: string; description: str
     value: "on-logout",
     title: "On logout",
     description: "Remember the unlocked key until the Vicinae session ends.",
+    recommended: true,
   },
   {
     value: "on-reboot",
     title: "On reboot",
     description: "Remember the unlocked key until you reboot.",
+  },
+  {
+    value: "never",
+    title: "Never",
+    description:
+      "Never forget the key. It stays in Vicinae's local storage until you lock by hand, so anything able to read vicinae.db can generate your codes.",
   },
 ];
 
@@ -180,8 +197,8 @@ export async function clearCache(): Promise<void> {
 
 export async function readLockPolicy(): Promise<LockPolicy | null> {
   const value = await LocalStorage.getItem<string>(POLICY_KEY);
-  if (value === "every-time" || value === "on-logout" || value === "on-reboot") return value;
-  return null;
+  // Reading through the list keeps this in step with the policies we offer.
+  return LOCK_POLICIES.some((entry) => entry.value === value) ? (value as LockPolicy) : null;
 }
 
 export async function writeLockPolicy(policy: LockPolicy): Promise<void> {
@@ -212,8 +229,9 @@ export async function rememberUnlockedKey(
     return;
   }
   const currentBootId = bootId();
-  if (currentBootId == null) {
-    // Without a boot id even "on logout" cannot be scoped reliably.
+  if (currentBootId == null && policy !== "never") {
+    // Without a boot id, neither "on logout" nor "on reboot" can be scoped
+    // reliably. "never" has no scope to check, so it does not need one.
     await clearCache();
     return;
   }
@@ -221,7 +239,7 @@ export async function rememberUnlockedKey(
     v: CACHE_VERSION,
     key: bytesToBase64(outcome.key),
     salt: outcome.saltB64,
-    bootId: currentBootId,
+    bootId: currentBootId ?? "",
     daemonStart: sessionToken(),
   };
   await LocalStorage.setItem(CACHE_KEY, JSON.stringify(entry));
@@ -251,6 +269,8 @@ export async function loadCachedKey(
     return null;
   }
 
+  // "never" answers no to both checks below on purpose: the key is kept until
+  // the salt changes or the user locks by hand.
   if (policy === "on-reboot") {
     if (entry.bootId !== bootId()) {
       await clearCache();

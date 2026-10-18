@@ -30,7 +30,10 @@ export function VaultSettings({ gate }: { gate: VaultGate }) {
               title={entry.title}
               subtitle={entry.description}
               icon={current ? Icon.CheckCircle : Icon.Circle}
-              accessories={current ? [{ text: "Current" }] : []}
+              accessories={[
+                ...(current ? [{ text: "Current" }] : []),
+                ...(entry.recommended ? [{ text: "Recommended" }] : []),
+              ]}
               actions={
                 <ActionPanel>
                   {current ? null : (
