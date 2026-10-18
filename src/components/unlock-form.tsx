@@ -7,6 +7,13 @@ import {
   type UnlockResult,
 } from "../lib/vault";
 
+/** Icons for the policy dropdown. Only used on the onboarding form. */
+const POLICY_ICONS = {
+  "every-time": Icon.Lock,
+  "on-logout": Icon.Logout,
+  "on-reboot": Icon.Power,
+} as const;
+
 type UnlockFormProps = {
   /** First run asks for the lock policy as well as the password. */
   firstRun: boolean;
@@ -57,18 +64,6 @@ export function UnlockForm({ firstRun, defaultPassword = "", onSubmit }: UnlockF
             icon={Icon.LockUnlocked}
             onSubmit={handleSubmit}
           />
-          {firstRun ? (
-            <ActionPanel.Section title="Lock policy">
-              {LOCK_POLICIES.map((entry) => (
-                <Action
-                  key={entry.value}
-                  title={entry.title}
-                  icon={entry.value === policy ? Icon.CheckCircle : Icon.Circle}
-                  onAction={() => setPolicy(entry.value)}
-                />
-              ))}
-            </ActionPanel.Section>
-          ) : null}
         </ActionPanel>
       }
     >
@@ -93,15 +88,24 @@ export function UnlockForm({ firstRun, defaultPassword = "", onSubmit }: UnlockF
         ref={passwordRef}
       />
       {firstRun ? (
-        <Form.Description
-          title={selectedPolicy ? `Lock policy: ${selectedPolicy.title}` : "Lock policy"}
-          text={
-            selectedPolicy
-              ? `${selectedPolicy.description} Change it from the action panel.`
-              : "Change it from the action panel."
-          }
-        />
+        <Form.Dropdown
+          id="lockPolicy"
+          title="Lock policy"
+          value={policy}
+          info="How long the derived key keeps working after you unlock. Your master password is never stored either way."
+          onChange={(next) => setPolicy(next as LockPolicy)}
+        >
+          {LOCK_POLICIES.map((entry) => (
+            <Form.Dropdown.Item
+              key={entry.value}
+              value={entry.value}
+              title={entry.title}
+              icon={POLICY_ICONS[entry.value]}
+            />
+          ))}
+        </Form.Dropdown>
       ) : null}
+      {firstRun && selectedPolicy ? <Form.Description text={selectedPolicy.description} /> : null}
     </Form>
   );
 }
