@@ -50,6 +50,18 @@ export function readConfig(configPath: string): Config {
   return parseConfig(raw);
 }
 
+/**
+ * Turns a failed config read into something the user can act on. A missing file
+ * is the common case, and the raw ENOENT says nothing about what to do.
+ */
+export function describeConfigReadError(error: unknown, configPath: string): string {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  if (code === "ENOENT") {
+    return `No Keysmith.conf at ${configPath}. Install KDE Keysmith and create a vault, or set the Config path preference to where your Keysmith.conf lives.`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function writeConfig(configPath: string, config: Config): void {
   const tmpPath = `${configPath}.tmp`;
   fs.writeFileSync(tmpPath, stringifyConfig(config), "utf8");

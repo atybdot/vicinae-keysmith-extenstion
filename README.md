@@ -11,12 +11,13 @@ A Vicinae extension that reads your KDE Keysmith OTP store directly. Search acco
 
 - Search Keysmith accounts by account name or issuer.
 - TOTP codes with live countdown, HOTP codes with counter tracking.
-- Brand icons for common issuers, bundled from the Simple Icons project (CC0 1.0).
-- No subprocesses, no network access. Everything runs locally.
+- No network access. Codes are derived and verified on your machine.
+- One subprocess, and only on request: "Scan QR from Screen" runs Spectacle to grab a screenshot.
 
 ## Requirements
 
-- Linux with KDE Keysmith installed and configured.
+- Linux. KDE Keysmith installed with a vault already set up.
+- Spectacle for capturing a QR code from the screen. Everything else works without it.
 - Node.js 20 or newer, `npm` for installing dependencies.
 
 ## Development setup
@@ -71,7 +72,7 @@ Removing a preference does not always purge its stored value, so the plaintext p
 
 ## Privacy and security
 
-- Argon2id key derivation, secretbox decryption, and OTP calculation all run locally. No subprocesses, no network access.
+- Argon2id key derivation, secretbox decryption, and OTP calculation all run locally, with no network access. The only program the extension ever starts is Spectacle, and only when you ask it to capture the screen.
 - Your master password is never stored. Under the Every time policy it is never written to disk. Under the other policies the extension caches the derived key instead, and that key only opens this one vault. It cannot unlock Keysmith, which derives its own key from the typed password.
 - The cached key lives in Vicinae's local storage, which is only as private as `vicinae.db`. Database encryption is opt-in via sqlcipher, so on a default install the cache is a plaintext key on disk. Pick Every time if you would rather avoid that.
 - Locking clears the cached copy. A copy of the key can still sit in the worker's heap until the process exits, so clearing the cache removes the durable copy, not every in-memory one.
@@ -82,7 +83,8 @@ Removing a preference does not always purge its stored value, so the plaintext p
 ## Notes
 
 - Vicinae extensions expose the extension command in root search. Open the Keysmith command first, then search inside its list.
-- Brand icons are a small bundled set for v1. Dynamic icon fetching is a possible future improvement.
+- Linux only. Both commands check the platform on launch and explain themselves on macOS or Windows, where `Keysmith.conf` and `/proc` do not exist.
+- Every account row uses the same key glyph for now. Per-issuer brand icons are a possible future addition.
 
 ## How it works
 

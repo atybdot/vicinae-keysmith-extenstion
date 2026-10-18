@@ -19,6 +19,7 @@ import { parseOtpUrl } from "./lib/otp";
 import { decodeQrImage } from "./lib/qr";
 import { type VaultSession, legacyMasterPassword, useVault } from "./lib/vault";
 import { UnlockForm } from "./components/unlock-form";
+import { UnsupportedPlatform } from "./components/unsupported-platform";
 
 const execFileAsync = promisify(execFile);
 
@@ -221,6 +222,10 @@ export default function AddAccount() {
   const preferences = getPreferenceValues<ExtensionPreferences>();
   const configPath = normalizeConfigPath(preferences.configPath);
   const gate = useVault(configPath);
+
+  if (gate.status === "unsupported") {
+    return <UnsupportedPlatform />;
+  }
 
   if (gate.status === "loading") {
     return <Form isLoading />;

@@ -2,7 +2,15 @@ import { getPreferenceValues, LocalStorage, showToast, Toast } from "@vicinae/ap
 import { randomBytes } from "crypto";
 import * as fs from "fs";
 import { useCallback, useEffect, useState } from "react";
-import { deriveKey, ensureSodium, masterSaltB64, readConfig, verifyKey } from "./keysmith";
+import {
+  deriveKey,
+  describeConfigReadError,
+  ensureSodium,
+  masterSaltB64,
+  readConfig,
+  verifyKey,
+} from "./keysmith";
+import { isSupportedPlatform } from "./platform";
 
 /**
  * How long an unlocked vault key is kept around.
@@ -271,7 +279,7 @@ export type VaultSession = {
 export type UnlockResult = { ok: true } | { ok: false; message: string };
 
 export type VaultGate = {
-  status: "loading" | "locked" | "unlocked" | "error";
+  status: "loading" | "locked" | "unlocked" | "error" | "unsupported";
   /** True when no lock policy is stored yet, which is the first-run case. */
   firstRun: boolean;
   error: string | null;
@@ -307,6 +315,11 @@ export function useVault(configPath: string): VaultGate {
   const [session, setSession] = useState<VaultSession | null>(null);
 
   const bootstrap = useCallback(async () => {
+    if (!isSupportedPlatform()) {
+      // Nothing here can work, so do not touch the filesystem to find out.
+      setStatus("unsupported");
+      return;
+    }
     setStatus("loading");
     setError(null);
     try {
@@ -325,7 +338,7 @@ export function useVault(configPath: string): VaultGate {
       setSession({ key: cached.key, saltB64: cached.saltB64, verified: true, policy });
       setStatus("unlocked");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeConfigReadError(err, configPath));
       setStatus("error");
     }
   }, [configPath]);
