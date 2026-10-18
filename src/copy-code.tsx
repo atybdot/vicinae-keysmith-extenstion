@@ -225,16 +225,24 @@ function AccountList({
                       title="Use Code and Increment"
                       icon={Icon.ArrowRight}
                       onAction={async () => {
-                        await Clipboard.copy(item.code);
-                        const ok = incrementHotpCounter(configPath, item.account.id);
-                        if (!ok) {
+                        try {
+                          const ok = incrementHotpCounter(configPath, item.account.id);
+                          if (!ok) {
+                            await showToast({
+                              style: Toast.Style.Failure,
+                              title: "Keysmith",
+                              message: "Failed to update HOTP counter",
+                            });
+                            return;
+                          }
+                          await Clipboard.copy(item.code);
+                          setRefreshCount((n) => n + 1);
+                        } catch (error) {
                           await showToast({
                             style: Toast.Style.Failure,
                             title: "Keysmith",
-                            message: "Failed to update HOTP counter",
+                            message: error instanceof Error ? error.message : String(error),
                           });
-                        } else {
-                          setRefreshCount((n) => n + 1);
                         }
                       }}
                     />

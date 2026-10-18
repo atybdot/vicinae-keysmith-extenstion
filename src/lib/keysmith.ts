@@ -64,8 +64,35 @@ export function describeConfigReadError(error: unknown, configPath: string): str
 
 export function writeConfig(configPath: string, config: Config): void {
   const tmpPath = `${configPath}.tmp`;
-  fs.writeFileSync(tmpPath, stringifyConfig(config), "utf8");
-  fs.renameSync(tmpPath, configPath);
+  let mode: number | null = null;
+  try {
+    mode = fs.statSync(configPath).mode & 0o777;
+  } catch {
+    // No existing vault to copy permissions from.
+  }
+  // A stale temp file from a previous failed write could keep its old mode,
+  // which would defeat the permission preservation below.
+  try {
+    fs.rmSync(tmpPath, { force: true });
+  } catch {
+    // Best effort; the write below will surface any real error.
+  }
+  try {
+    fs.writeFileSync(
+      tmpPath,
+      stringifyConfig(config),
+      mode === null ? "utf8" : { encoding: "utf8", mode },
+    );
+    if (mode !== null) fs.chmodSync(tmpPath, mode);
+    fs.renameSync(tmpPath, configPath);
+  } catch (error) {
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch {
+      // Best effort cleanup.
+    }
+    throw error;
+  }
 }
 
 export function parseConfig(text: string): Config {

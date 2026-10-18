@@ -14,6 +14,7 @@ import * as os from "os";
 import * as path from "path";
 import { useState } from "react";
 import { promisify } from "util";
+import * as fs from "fs/promises";
 import { addKeysmithAccount, base32Decode, normalizeConfigPath } from "./lib/keysmith";
 import { parseOtpUrl } from "./lib/otp";
 import { decodeQrImage } from "./lib/qr";
@@ -28,6 +29,10 @@ type AccountFields = {
   issuer: string;
   secret: string;
   type: "totp" | "hotp";
+  digits: number;
+  timeStep: number;
+  counter: number;
+  algorithm: string;
 };
 
 async function decodeAndApply(
@@ -53,7 +58,16 @@ async function decodeAndApply(
     });
     return false;
   }
-  fill({ account: url.account, issuer: url.issuer, secret: url.secret, type: url.type });
+  fill({
+    account: url.account,
+    issuer: url.issuer,
+    secret: url.secret,
+    type: url.type,
+    digits: url.digits,
+    timeStep: url.timeStep,
+    counter: url.counter,
+    algorithm: url.algorithm,
+  });
   await showToast({
     title: "QR code detected",
     message: "Account details filled in. Review and submit.",
@@ -61,17 +75,50 @@ async function decodeAndApply(
   return true;
 }
 
+function normalizeAlgorithm(value: string): string {
+  const v = value.toLowerCase().replace(/-/g, "");
+  if (v === "sha256") return "Sha256";
+  if (v === "sha512") return "Sha512";
+  return "Sha1";
+}
+
+async function discardScreenshot(file: string): Promise<void> {
+  try {
+    await fs.unlink(file);
+  } catch (error) {
+    const code = (error as { code?: unknown } | null | undefined)?.code;
+    if (code === "ENOENT") return;
+    try {
+      await showToast({
+        title: "Could not remove screenshot",
+        message: `The captured QR screenshot may still contain your secret. Delete it manually: ${file}`,
+        style: Toast.Style.Failure,
+      });
+    } catch {
+      // Toast display is best-effort.
+    }
+  }
+}
+
 function AddAccountForm({ configPath, session }: { configPath: string; session: VaultSession }) {
   const [account, setAccount] = useState("");
   const [issuer, setIssuer] = useState("");
   const [secret, setSecret] = useState("");
   const [type, setType] = useState<"totp" | "hotp">("totp");
+  const [digits, setDigits] = useState("6");
+  const [timeStep, setTimeStep] = useState("30");
+  const [counter, setCounter] = useState("0");
+  const [algorithm, setAlgorithm] = useState("SHA1");
 
   function fillForm(fields: AccountFields) {
     setAccount(fields.account);
     setIssuer(fields.issuer);
     setSecret(fields.secret);
     setType(fields.type);
+    setDigits(String(fields.digits));
+    setTimeStep(String(fields.timeStep));
+    setCounter(String(fields.counter));
+    setAlgorithm(fields.algorithm);
   }
 
   async function handleQrFile(paths: string[]) {
@@ -91,28 +138,35 @@ function AddAccountForm({ configPath, session }: { configPath: string; session: 
   async function handleScreenshot() {
     const output = path.join(os.tmpdir(), `vicinae-keysmith-qr-${Date.now()}.png`);
     try {
-      await execFileAsync("spectacle", ["-r", "-b", "-n", "-o", output], { timeout: 120000 });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("ENOENT")) {
+      try {
+        await execFileAsync("spectacle", ["-r", "-b", "-n", "-o", output], { timeout: 120000 });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("ENOENT")) {
+          await showToast({
+            title: "Spectacle not found",
+            message: "Install Spectacle or pick a QR image file instead.",
+            style: Toast.Style.Failure,
+          });
+        } else {
+          await showToast({
+            title: "Screenshot cancelled",
+            message: "No screenshot was captured.",
+          });
+        }
+        return;
+      }
+      try {
+        await decodeAndApply(output, fillForm);
+      } catch (error) {
         await showToast({
-          title: "Spectacle not found",
-          message: "Install Spectacle or pick a QR image file instead.",
+          title: "Could not read screenshot",
+          message: error instanceof Error ? error.message : String(error),
           style: Toast.Style.Failure,
         });
-      } else {
-        await showToast({ title: "Screenshot cancelled", message: "No screenshot was captured." });
       }
-      return;
-    }
-    try {
-      await decodeAndApply(output, fillForm);
-    } catch (error) {
-      await showToast({
-        title: "Could not read screenshot",
-        message: error instanceof Error ? error.message : String(error),
-        style: Toast.Style.Failure,
-      });
+    } finally {
+      await discardScreenshot(output);
     }
   }
 
@@ -142,12 +196,26 @@ function AddAccountForm({ configPath, session }: { configPath: string; session: 
       return;
     }
 
+    const digitsRaw = Number.parseInt(String(values.digits ?? digits), 10);
+    const pinLength = Number.isFinite(digitsRaw) && digitsRaw > 0 ? digitsRaw : 6;
+
+    const algorithmValue = normalizeAlgorithm(String(values.algorithm ?? algorithm));
+
+    const periodRaw = Number.parseInt(String(values.timeStep ?? timeStep), 10);
+    const timeStepValue = Number.isFinite(periodRaw) && periodRaw > 0 ? periodRaw : 30;
+
+    const counterRaw = Number.parseInt(String(values.counter ?? counter), 10);
+    const counterValue = Number.isFinite(counterRaw) && counterRaw >= 0 ? counterRaw : 0;
+
     try {
       await addKeysmithAccount(configPath, session.key, {
         account: name,
         issuer: issuerValue,
         type: otpType,
         secret: secretValue,
+        pinLength,
+        hash: algorithmValue,
+        ...(otpType === "totp" ? { timeStep: timeStepValue } : { counter: counterValue }),
       });
       await showToast({ title: "Account added", message: "The account was added to Keysmith." });
       await closeMainWindow();
@@ -214,6 +282,35 @@ function AddAccountForm({ configPath, session }: { configPath: string; session: 
         <Form.Dropdown.Item value="totp" title="TOTP (time-based)" />
         <Form.Dropdown.Item value="hotp" title="HOTP (counter-based)" />
       </Form.Dropdown>
+      <Form.Dropdown id="algorithm" title="Algorithm" value={algorithm} onChange={setAlgorithm}>
+        <Form.Dropdown.Item value="SHA1" title="SHA1" />
+        <Form.Dropdown.Item value="SHA256" title="SHA256" />
+        <Form.Dropdown.Item value="SHA512" title="SHA512" />
+      </Form.Dropdown>
+      <Form.TextField
+        id="digits"
+        title="Digits"
+        value={digits}
+        onChange={setDigits}
+        placeholder="6"
+      />
+      {type === "totp" ? (
+        <Form.TextField
+          id="timeStep"
+          title="Period (seconds)"
+          value={timeStep}
+          onChange={setTimeStep}
+          placeholder="30"
+        />
+      ) : (
+        <Form.TextField
+          id="counter"
+          title="Counter"
+          value={counter}
+          onChange={setCounter}
+          placeholder="0"
+        />
+      )}
     </Form>
   );
 }
@@ -233,8 +330,6 @@ export default function AddAccount() {
 
   if (gate.status === "unlocked" && gate.session) {
     if (!gate.session.verified) {
-      // The password could not be checked against any account. Writing here
-      // would risk an entry Keysmith can never open.
       return (
         <List>
           <List.EmptyView
